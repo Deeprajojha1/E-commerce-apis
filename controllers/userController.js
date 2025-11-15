@@ -69,25 +69,46 @@ export const UpdateProfile = async (req, res) => {
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 export const GoogleLogin = async (req, res) => {
-    const { credential } = req.body;
+  const { credential } = req.body;
 
-    try {
-        const ticket = await client.verifyIdToken({
-            idToken: credential,
-            audience: process.env.GOOGLE_CLIENT_ID,
-        });
-        const payload = ticket.getPayload();
-        const email = payload.email;
+  try {
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
 
-        const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(400).json({ message: "User not registered" });
-        }
+    const payload = ticket.getPayload();
+    const email = payload.email;
 
-        const loginToken = jwt.sign({ UserId: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
-
-        res.status(200).json({ message: "Login successful", user, token: loginToken });
-    } catch (error) {
-        res.status(500).json({ message: "Google login failed", error });
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: "User not registered" });
     }
+
+    const loginToken = jwt.sign(
+      { UserId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // 🔥 Set secure cookie
+    res.cookie("token", loginToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "None",
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      path: "/",
+    });
+
+    return res.status(200).json({
+      message: "Login successful",
+      user,
+      token: loginToken,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Google login failed",
+      error: error.message,
+    });
+  }
 };
