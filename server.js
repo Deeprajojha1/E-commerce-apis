@@ -19,7 +19,7 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://deft-speculoos-618db7.netlify.app",       // YOUR CORRECT FRONTEND
+  "https://magenta-swan-18e314.netlify.app",       // YOUR CORRECT FRONTEND
   "https://e-commerce-apis-fzt6.onrender.com"
 ];
 
