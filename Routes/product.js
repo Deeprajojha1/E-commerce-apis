@@ -7,7 +7,7 @@ const router = express.Router();
 router.post('/add', createProduct);
 // Get All product
 // /api/products/
-router.get('/all', getProducts);
+router.get('/allProducts', getProducts);
 
 // Get Product By id
 // /api/product/:id

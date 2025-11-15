@@ -3,18 +3,27 @@ import jwt from "jsonwebtoken";
 import User from "../Models/User.js";
 
 export const isAuthenticated = async (req, res, next) => {
-  const token = req.header("Auth"); // or "Authorization" depending on your client
+  const authHeader = req.header("Authorization");
+  if (!authHeader) {
+    return res.status(401).json({ message: "Login first" });
+  }
+
+  // Support both 'Bearer <token>' and raw token
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : authHeader.trim();
+
   if (!token) {
     return res.status(401).json({ message: "Login first" });
   }
-//   console.log("Token received:", token);
-//   console.log(jwt.verify(token, process.env.JWT_SECRET));
+
+  if (!process.env.JWT_SECRET) {
+    return res.status(500).json({ message: "Server misconfigured: JWT secret missing" });
+  }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
     const user = await User.findById(decoded.UserId);
-    // console.log("Decoded token:", decoded.UserId);
     if (!user) {
       return res.status(401).json({ message: "Unauthorized User" });
     }
