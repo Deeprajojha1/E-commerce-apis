@@ -49,117 +49,94 @@ const buildMatch = (terms, requireAll) => {
   };
 };
 
+// In productController.js, update the getProducts function:
+
 export const getProducts = async (req, res) => {
   try {
     const searchParam = (req.query.search ?? req.query.q ?? "").toString();
     const terms = searchParam.trim() ? searchParam.trim().split(/\s+/) : [];
-
-    // Parse categories from query: ?category=Electronics or ?category=Electronics,Furniture
+    
+    // Parse categories
     const categoryRaw = (req.query.category ?? "").toString().trim();
     const categories = categoryRaw
-      ? categoryRaw
-          .split(",")
-          .map((s) => s.trim())
-          .filter((c) => c && c.toLowerCase() !== "all")
+      ? categoryRaw.split(",").map(s => s.trim()).filter(Boolean)
       : [];
     
-    // Parse rating filter: ?rating=4 (exact) or ?rating=4+ (4 and above)
-    const ratingFilter = req.query.rating ? req.query.rating.toString() : '';
+    // Build the base query
+    let query = {};
     
-    // Parse price filter: ?price=1000 (exact) or ?price=1000-2000 (range)
-    const priceFilter = req.query.price ? req.query.price.toString() : '';
-    
-    const catRegexes = categories.map((c) => new RegExp(`^${c}$`, "i"));
-    
-    // Build the base match conditions
-    const matchConditions = [];
-    
-    // Add category filter if categories exist
-    if (categories.length) {
-      matchConditions.push({ category: { $in: catRegexes } });
+    // Add search terms if they exist
+    if (terms.length > 0) {
+      query.$or = SEARCH_FIELDS.flatMap(field => 
+        terms.map(term => ({ [field]: new RegExp(term, 'i') }))
+      );
     }
     
-    // Add rating filter if rating exists
-    if (ratingFilter) {
-      if (ratingFilter.endsWith('+')) {
-        // For ratings of X and above (e.g., 4+)
-        const minRating = parseFloat(ratingFilter);
-        if (!isNaN(minRating)) {
-          matchConditions.push({ rating: { $gte: minRating } });
-        }
-      } else {
-        // For exact rating match
-        const exactRating = parseFloat(ratingFilter);
-        if (!isNaN(exactRating)) {
-          matchConditions.push({ rating: exactRating });
-        }
+    // Add category filter
+    if (categories.length > 0) {
+      query.category = { $in: categories.map(c => new RegExp(`^${c}$`, 'i')) };
+    }
+    
+    // Add rating filter
+    if (req.query.rating) {
+      const rating = parseFloat(req.query.rating);
+      if (!isNaN(rating)) {
+        query.rating = { $gte: rating };
       }
     }
     
-    // Add price filter if price exists
-    if (priceFilter) {
-      if (priceFilter.includes('-')) {
-        // For price range (e.g., 1000-2000)
-        const [min, max] = priceFilter.split('-').map(Number);
+    // Add price filter
+    if (req.query.price) {
+      const price = req.query.price.toString();
+      if (price.includes('-')) {
+        const [min, max] = price.split('-').map(Number);
         if (!isNaN(min) && !isNaN(max)) {
-          matchConditions.push({
-            $or: [
-              { price: { $gte: min, $lte: max } },
-              { mrp: { $gte: min, $lte: max } },
-              { discount_price: { $gte: min, $lte: max } },
-              { discountPrice: { $gte: min, $lte: max } }
-            ]
-          });
+          query.$or = [
+            { price: { $gte: min, $lte: max } },
+            { mrp: { $gte: min, $lte: max } },
+            { discount_price: { $gte: min, $lte: max } },
+            { discountPrice: { $gte: min, $lte: max } }
+          ];
         }
       } else {
-        // For exact price or minimum price
-        const price = parseFloat(priceFilter);
-        if (!isNaN(price)) {
-          matchConditions.push({
-            $or: [
-              { price: price },
-              { mrp: price },
-              { discount_price: price },
-              { discountPrice: price }
-            ]
-          });
+        const priceNum = parseFloat(price);
+        if (!isNaN(priceNum)) {
+          query.$or = [
+            { price: priceNum },
+            { mrp: priceNum },
+            { discount_price: priceNum },
+            { discountPrice: priceNum }
+          ];
         }
       }
     }
     
-    // Combine all match conditions with $and
-    const matchStage = matchConditions.length > 0 ? { $match: { $and: matchConditions } } : {};
-
-    if (terms.length) {
-      // First try with all terms required
-      let products = await Product.aggregate([
-        ...UNWIND_STAGES,
-        { $match: buildMatch(terms, true) },
-        ...(matchConditions.length ? [matchStage] : [])
-      ]);
-
-      // If no results, try with any term matching
-      if (!products.length) {
-        products = await Product.aggregate([
-          ...UNWIND_STAGES,
-          { $match: buildMatch(terms, false) },
-          ...(matchConditions.length ? [matchStage] : [])
-        ]);
-      }
-
-      return res.status(200).json(products);
-    }
-
-    // If no search terms, just apply filters
-    const all = await Product.aggregate([
-      ...UNWIND_STAGES,
-      ...(matchConditions.length ? [matchStage] : [])
-    ]);
+    // Set timeout for the query
+    const options = {
+      maxTimeMS: 30000, // 30 seconds timeout
+      allowDiskUse: true // Allow disk use for large aggregations
+    };
     
-    return res.status(200).json(all);
+    // Execute the query
+    let products;
+    if (UNWIND_STAGES.length > 0) {
+      products = await Product.aggregate([
+        ...UNWIND_STAGES,
+        { $match: query }
+      ], options);
+    } else {
+      products = await Product.find(query, null, options);
+    }
+    
+    res.status(200).json(products);
+    
   } catch (error) {
     console.error("Error fetching products:", error);
-    res.status(500).json({ message: "Error fetching products", error });
+    res.status(500).json({ 
+      message: "Error fetching products", 
+      error: error.message,
+      code: error.code
+    });
   }
 };
 
